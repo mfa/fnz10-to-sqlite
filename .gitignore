@@ -11,3 +11,6 @@ wheels/
 
 # diskcache
 .cache
+
+# sqlite databases
+*.db
