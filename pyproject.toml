@@ -1,5 +1,5 @@
 [project]
-name = "kfz-de-to-sqlite"
+name = "fnz10-to-sqlite"
 version = "0.1.0"
 description = "convert Kraftfahrt-Bundesamt statistics to SQLite"
 readme = "README.md"
