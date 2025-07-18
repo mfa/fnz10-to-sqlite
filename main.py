@@ -70,6 +70,9 @@ def parse_xslx(blob: io.BytesIO):
         if row[idx_marke] is not None:
             last_marke = row[idx_marke]
         marke = last_marke
+        # skip overall or summary rows in the marke field
+        if isinstance(marke, str) and re.search(r"insgesamt|zusammen", marke, re.IGNORECASE):
+            continue
         modell = row[idx_modell]
         # skip summary rows
         if modell == "ZUSAMMEN":
