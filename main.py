@@ -26,12 +26,16 @@ def download(year: int, month: int) -> bytes:
 
 def parse_xslx(blob: io.BytesIO):
     """
-    Parse the downloaded Excel blob and yield rows as dicts, using rows 8 and 9 as headers.
+    Parse the downloaded Excel blob and yield rows as dicts in long form:
+    - 'marke' and 'modellreihe' from row 9 header
+    - 'kategorie' from row 8 header
+    - one column per subheader from row 9 (e.g. Juni 2025, Jan. - Juni 2025, Anteil in %)
+    Skips summary rows where modellreihe == 'ZUSAMMEN'.
     """
     wb = openpyxl.load_workbook(blob, read_only=True, data_only=True)
     sheet = wb["FZ 10.1"]
     rows = sheet.iter_rows(values_only=True)
-    # skip to header rows (Excel is 1-indexed; header rows are 8 and 9)
+    # advance to header rows (8 & 9)
     for _ in range(7):
         next(rows, None)
     header8 = next(rows, ())
@@ -43,32 +47,43 @@ def parse_xslx(blob: io.BytesIO):
         if cell is not None:
             last = cell
         filled8.append(last)
-    # combine with row 9 to form field names
-
-    columns = []
-    for h8, h9 in zip(filled8, header9):
-        label = None
-        if h8 is not None and h9 is not None:
-            label = f"{h8}_{h9}"
-        else:
-            label = h8 or h9
-        # normalize to snake_case
-        key = re.sub(r"[^0-9a-zA-Z]+", "_", str(label).strip()).lower().strip("_")
-        columns.append(key)
-    # yield remaining data rows, carrying forward empty Marke values
+    # locate static columns (Marke, Modellreihe)
+    idx_marke = header9.index("Marke")
+    idx_modell = header9.index("Modellreihe")
+    # dynamic region starts after Modellreihe
+    start = idx_modell + 1
+    # collect subheaders for the first category
+    first_cat = filled8[start]
+    subheaders = []
+    i = start
+    while i < len(header9) and filled8[i] == first_cat:
+        subheaders.append(header9[i])
+        i += 1
+    block = len(subheaders)
+    # categories are the distinct row8 values at each block
+    categories = [filled8[j] for j in range(start, len(header9), block)]
+    # normalize subheaders to snake_case keys
+    keys = [re.sub(r"[^0-9a-zA-Z]+", "_", str(h).strip()).lower().strip("_") for h in subheaders]
+    # iterate data rows, fill down Marke, skip summaries, pivot blocks
     last_marke = None
     for row in rows:
-        # skip entirely empty rows
         if not any(cell is not None for cell in row):
             continue
-        record = dict(zip(columns, row))
-        # fill down missing Marke values
-        marque = record.get("marke")
-        if marque is None:
-            record["marke"] = last_marke
-        else:
-            last_marke = marque
-        yield record
+        # fill down Marke
+        if row[idx_marke] is not None:
+            last_marke = row[idx_marke]
+        marke = last_marke
+        modell = row[idx_modell]
+        # skip summary rows
+        if modell == "ZUSAMMEN":
+            continue
+        # yield one record per category block
+        for bi, cat in enumerate(categories):
+            base = start + bi * block
+            values = row[base : base + block]
+            rec = {"marke": marke, "modellreihe": modell, "kategorie": cat}
+            rec.update({k: v for k, v in zip(keys, values)})
+            yield rec
 
 
 def _previous_month() -> tuple[int, int]:
@@ -84,9 +99,15 @@ app = typer.Typer(help="Download KBA FZ10 Excel reports and insert into a SQLite
 
 @app.command()
 def main(
-    db_path: Path = typer.Argument(Path("data.db"), help="SQLite database file."),
-    year: int | None = typer.Option(None, "-y", "--year", help="Year of report, defaults to previous month."),
-    month: int | None = typer.Option(None, "-m", "--month", help="Month of report (1-12), defaults to previous month."),
+    year: int | None = typer.Option(
+        None, "-y", "--year", help="Year of report, defaults to previous month."
+    ),
+    month: int | None = typer.Option(
+        None, "-m", "--month", help="Month of report (1-12), defaults to previous month."
+    ),
+    db_path: Path = typer.Option(
+        Path("data.db"), "-d", "--db-path", help="SQLite database file."
+    ),
 ):
     """
     Download, parse and insert KBA FZ10 report into a SQLite table.
