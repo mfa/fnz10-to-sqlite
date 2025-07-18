@@ -29,8 +29,8 @@ def parse_xslx(blob: io.BytesIO):
     Parse the downloaded Excel blob and yield rows as dicts in long form:
     - 'marke' and 'modellreihe' from row 9 header
     - 'kategorie' from row 8 header
-    - one column per subheader from row 9 (e.g. Juni 2025, Jan. - Juni 2025, Anteil in %)
-    Skips summary rows where modellreihe == 'ZUSAMMEN'.
+    - fields: year, month (e.g. 'Juni'), count (single-month total)
+    Skips summary rows where marke contains 'INSGESAMT' or 'ZUSAMMEN'.
     """
     wb = openpyxl.load_workbook(blob, read_only=True, data_only=True)
     sheet = wb["FZ 10.1"]
@@ -95,21 +95,13 @@ def parse_xslx(blob: io.BytesIO):
             else:
                 month_label = raw_month_str
                 year = None
-            # detect range header e.g. 'Jan. - Juni 2025' (overrides year)
-            month_range = None
-            m2 = re.match(r"(.+?)\s*-\s*(.+?)\s+(\d{4})", str(raw_range))
-            if m2:
-                month_range = f"{m2.group(1).strip()}-{m2.group(2).strip()}"
-                year = int(m2.group(3))
             yield {
                 "marke": marke,
                 "modellreihe": modell,
                 "kategorie": cat,
                 "year": year,
                 "month": month_label,
-                "month_range": month_range,
                 "count": _to_int(value_month),
-                "count_range": _to_int(value_range),
             }
 
 
