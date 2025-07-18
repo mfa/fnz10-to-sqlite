@@ -47,24 +47,15 @@ def parse_xslx(blob: io.BytesIO):
         if cell is not None:
             last = cell
         filled8.append(last)
-    # locate static columns (Marke, Modellreihe)
+    # locate static columns (Marke, Modellreihe) and define data blocks
     idx_marke = header9.index("Marke")
     idx_modell = header9.index("Modellreihe")
-    # dynamic region starts after Modellreihe
     start = idx_modell + 1
-    # collect subheaders for the first category
-    first_cat = filled8[start]
-    subheaders = []
-    i = start
-    while i < len(header9) and filled8[i] == first_cat:
-        subheaders.append(header9[i])
-        i += 1
-    block = len(subheaders)
-    # categories are the distinct row8 values at each block
+    # each block has 3 columns: month, month-range, percentage
+    block = 3
+    # categories = distinct row8 values per block
     categories = [filled8[j] for j in range(start, len(header9), block)]
-    # normalize subheaders to snake_case keys
-    keys = [re.sub(r"[^0-9a-zA-Z]+", "_", str(h).strip()).lower().strip("_") for h in subheaders]
-    # iterate data rows, fill down Marke, skip summaries, pivot blocks
+
     last_marke = None
     for row in rows:
         if not any(cell is not None for cell in row):
@@ -77,13 +68,40 @@ def parse_xslx(blob: io.BytesIO):
         # skip summary rows
         if modell == "ZUSAMMEN":
             continue
-        # yield one record per category block
+
+        # pivot each category block into a record with year, month, range, and count
         for bi, cat in enumerate(categories):
             base = start + bi * block
-            values = row[base : base + block]
-            rec = {"marke": marke, "modellreihe": modell, "kategorie": cat}
-            rec.update({k: v for k, v in zip(keys, values)})
-            yield rec
+            raw_month = header9[base]
+            raw_range = header9[base + 1]
+            value_month = row[base]
+            value_range = row[base + 1]
+            # parse year and month/range text
+            # extract month name and year from the single-month header
+            raw_month_str = str(raw_month).strip()
+            m1 = re.match(r"(.+?)\s+(\d{4})", raw_month_str)
+            if m1:
+                month_label = m1.group(1).strip()
+                year = int(m1.group(2))
+            else:
+                month_label = raw_month_str
+                year = None
+            # detect range header e.g. 'Jan. - Juni 2025' (overrides year)
+            month_range = None
+            m2 = re.match(r"(.+?)\s*-\s*(.+?)\s+(\d{4})", str(raw_range))
+            if m2:
+                month_range = f"{m2.group(1).strip()}-{m2.group(2).strip()}"
+                year = int(m2.group(3))
+            yield {
+                "marke": marke,
+                "modellreihe": modell,
+                "kategorie": cat,
+                "year": year,
+                "month": month_label,
+                "month_range": month_range,
+                "count": value_month,
+                "count_range": value_range,
+            }
 
 
 def _previous_month() -> tuple[int, int]:
@@ -120,7 +138,8 @@ def main(
         typer.echo("No data rows found, aborting.", err=True)
         raise typer.Exit(1)
     db = Database(db_path)
-    table_name = f"fz10_{year}_{month:02d}"
+    # use a single table for all months
+    table_name = "fz10"
     db[table_name].insert_all(rows, pk=None, replace=True)
     typer.echo(f"Inserted {len(rows)} rows into {db_path}:{table_name}")
 

@@ -11,9 +11,9 @@ Convert the official Excel export of German Fahrzeugzulassungen (newly registere
 ### Usage
 
 ```shell
-# default: previous month's report into data.db
+# load previous month's report into the shared 'fz10' table in data.db
 uv run main.py --year 2025 --month 6
 
-# specify custom database path
-uv run main.py --year 2025 --month 6 --db-path my.db
+# append a different month into the same 'fz10' table in a custom DB file
+uv run main.py --year 2025 --month 5 --db-path my.db
 ```
