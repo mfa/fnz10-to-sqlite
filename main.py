@@ -1,5 +1,5 @@
-import io
 import datetime
+import io
 import re
 from pathlib import Path
 
@@ -57,6 +57,7 @@ def parse_xslx(blob: io.BytesIO):
     categories = [filled8[j] for j in range(start, len(header9), block)]
 
     last_marke = None
+
     def _to_int(val):
         try:
             return int(val)
@@ -71,7 +72,9 @@ def parse_xslx(blob: io.BytesIO):
             last_marke = row[idx_marke]
         marke = last_marke
         # skip overall or summary rows in the marke field
-        if isinstance(marke, str) and re.search(r"insgesamt|zusammen", marke, re.IGNORECASE):
+        if isinstance(marke, str) and re.search(
+            r"insgesamt|zusammen", marke, re.IGNORECASE
+        ):
             continue
         modell = row[idx_modell]
         # skip summary rows
@@ -119,10 +122,15 @@ app = typer.Typer(help="Download KBA FZ10 reports and insert into a SQLite datab
 @app.command()
 def main(
     all_months: bool = typer.Option(
-        False, "--all", help="Fetch and insert all months of the year up to previous month."
+        False,
+        "--all",
+        help="Fetch and insert all months of the year up to previous month.",
     ),
     year: int | None = typer.Option(
-        None, "-y", "--year", help="Year of report, defaults to previous month or year option if --all."
+        None,
+        "-y",
+        "--year",
+        help="Year of report, defaults to previous month or year option if --all.",
     ),
     month: int | None = typer.Option(
         None, "-m", "--month", help="Month of report (1-12), ignored if --all."
