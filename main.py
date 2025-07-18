@@ -57,6 +57,12 @@ def parse_xslx(blob: io.BytesIO):
     categories = [filled8[j] for j in range(start, len(header9), block)]
 
     last_marke = None
+    def _to_int(val):
+        try:
+            return int(val)
+        except Exception:
+            return None
+
     for row in rows:
         if not any(cell is not None for cell in row):
             continue
@@ -99,8 +105,8 @@ def parse_xslx(blob: io.BytesIO):
                 "year": year,
                 "month": month_label,
                 "month_range": month_range,
-                "count": value_month,
-                "count_range": value_range,
+                "count": _to_int(value_month),
+                "count_range": _to_int(value_range),
             }
 
 
@@ -112,36 +118,54 @@ def _previous_month() -> tuple[int, int]:
     return prev.year, prev.month
 
 
-app = typer.Typer(help="Download KBA FZ10 Excel reports and insert into a SQLite database.")
+app = typer.Typer(help="Download KBA FZ10 reports and insert into a SQLite database.")
 
 
 @app.command()
 def main(
+    all_months: bool = typer.Option(
+        False, "--all", help="Fetch and insert all months of the year up to previous month."
+    ),
     year: int | None = typer.Option(
-        None, "-y", "--year", help="Year of report, defaults to previous month."
+        None, "-y", "--year", help="Year of report, defaults to previous month or year option if --all."
     ),
     month: int | None = typer.Option(
-        None, "-m", "--month", help="Month of report (1-12), defaults to previous month."
+        None, "-m", "--month", help="Month of report (1-12), ignored if --all."
     ),
     db_path: Path = typer.Option(
         Path("data.db"), "-d", "--db-path", help="SQLite database file."
     ),
 ):
     """
-    Download, parse and insert KBA FZ10 report into a SQLite table.
+    Download, parse and insert KBA FZ10 report(s) into a SQLite table.
+    Use --all to insert every month of the given or current year up to the previous month.
     """
-    if year is None or month is None:
-        year, month = _previous_month()
-    blob = io.BytesIO(download(year, month))
-    rows = list(parse_xslx(blob))
-    if not rows:
-        typer.echo("No data rows found, aborting.", err=True)
-        raise typer.Exit(1)
+    # determine target table
     db = Database(db_path)
-    # use a single table for all months
     table_name = "fz10"
-    db[table_name].insert_all(rows, pk=None, replace=True)
-    typer.echo(f"Inserted {len(rows)} rows into {db_path}:{table_name}")
+    # decide on single vs batch mode
+    if all_months:
+        # fetch year/month span
+        default_year, last_month = _previous_month()
+        target_year = year or default_year
+        months = list(range(1, last_month + 1))
+    else:
+        # single-month mode
+        target_year, last_month = _previous_month()
+        target_year = year or target_year
+        target_month = month or last_month
+        months = [target_month]
+
+    total = 0
+    for m in months:
+        blob = io.BytesIO(download(target_year, m))
+        rows = list(parse_xslx(blob))
+        if not rows:
+            typer.echo(f"No data for {target_year}-{m:02d}, skipping.", err=True)
+            continue
+        db[table_name].insert_all(rows, pk=None, replace=True)
+        total += len(rows)
+    typer.echo(f"Inserted {total} rows into {db_path}:{table_name}")
 
 
 if __name__ == "__main__":
