@@ -11,5 +11,13 @@ Convert the official Excel export of German Fahrzeugzulassungen (newly registere
 ### usage
 
 ``` shell
-uv run main.py
+## Usage
+
+```shell
+# default: insert previous month's report into data.db
+uv run main.py -- data.db
+
+# specify target database, year and month explicitly
+uv run main.py -- data.db --year 2023 --month 6
 ```
+``` 
